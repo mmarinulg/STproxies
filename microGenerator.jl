@@ -178,8 +178,27 @@ end
 
 #################
 #DEMAND REALISATION
+Pload = Array(Float64, D, 0)
 
-Pload = Ploadfc
+#Laurine's method
+sigma_glob = .03
+sigma_loc = 0.1
+BusLoad = .01 * PCTBusLoad
+sum_squares = sum(BusLoad .* BusLoad)
+
+alpha_d = Float16(sqrt((sigma_glob^2 - sum_squares * sigma_loc^2) / (1 - sum_squares)))
+beta_d = Float16(sqrt((sigma_glob^2 - sigma_loc^2) / (sum_squares - 1)))
+
+N_alpha = Normal(0, alpha_d)
+N_beta = Normal(0, beta_d)
+
+for hour = 1:hpy
+	eps_alpha = rand(N_alpha)
+	eps_beta = rand(N_beta, D)
+	temp = (1 + eps_alpha + eps_beta) .* Ploadfc[:,hour]
+	Pload = hcat(Pload, temp)
+end
+
 #=
 #########################
 #MARKET CLEARING OUTCOME
@@ -289,16 +308,16 @@ open(outfile,"a") do x
 		write(x, join(BranchForceOut[l], ","))
 		write(x, "\n")
 	end	
-	#=
-	write(x,"END\n\n")
-	write(x,"MARKET CLEARING OUTCOME\n")
-	writecsv(x, MarketClearing)
-	write(x,"END\n\n")
 	write(x,"DEMAND FORECAST\n")
 	writecsv(x, Ploadfc)
 	write(x,"END\n\n")
 	write(x,"DEMAND REALIZATION\n")
 	writecsv(x, Pload)
+	write(x,"END\n\n")
+	#=
+	write(x,"END\n\n")
+	write(x,"MARKET CLEARING OUTCOME\n")
+	writecsv(x, MarketClearing)
 	write(x,"END\n\n")
 	=#
 end
