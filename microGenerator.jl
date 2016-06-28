@@ -151,7 +151,7 @@ end
 
 
 
-#=
+
 
 ####################
 #DEMAND FORECAST
@@ -180,7 +180,7 @@ end
 #DEMAND REALISATION
 
 Pload = Ploadfc
-
+#=
 #########################
 #MARKET CLEARING OUTCOME
 
