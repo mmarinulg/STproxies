@@ -73,7 +73,7 @@ end
 
 #GENERATOR FORCED OUTAGES
 
-#first create outage matrix in CRS format
+#first create outage array of arrays
 GenForceOut = Array(Any, G)
 
 for g=1:G
@@ -92,7 +92,7 @@ for g=1:G
 		week = Int(ceil(day/7))
 		#check if generator already in scheduled maintenance for current week
 		if week in GenSchOut[g]
-			hour = hour + hpw	#move to next week
+			hour = hour + hpw	#go to next week
 			continue
 		end
 		#simulate forced outage
@@ -162,8 +162,8 @@ for hour = 1:hpy
 	#println("Computing demand realization for hour ", hour)
 	day = Int(ceil(hour/24))
 	week = Int(ceil(day/7))
-	hour_of_day = mod(hour-1,24) + 1
-	day_of_week = mod(day-1,7) + 1
+	hour_of_day = mod(hour-1,hpd) + 1
+	day_of_week = mod(day-1,dpw) + 1
 	day_type = day_of_week <= 5 ? 1:2		#day_type: 1 = weekday, 2 = weekend
 	if week <= 8 || week >= 44
   		week_type = 0
@@ -199,11 +199,11 @@ for hour = 1:hpy
 	Pload = hcat(Pload, temp)
 end
 
-#=
+
 #########################
 #MARKET CLEARING OUTCOME
 
-#first create empy array indexed by generator, to be filled with tuples (hour, power output)
+#first create empty array indexed by generator, to be filled with tuples (hour, power output)
 MarketClearing = Array(Any, G)
 for g=1:G
 	MarketClearing[g] = Tuple{Int, Float64}[]
@@ -215,25 +215,22 @@ for day=1:1
 
     tic()
 
-    #first creat matrix of generator and branch availability
-    uGen = Int[]
-    uBranch = Int[]
+    #first creat vector of generator availability
+    uGen = ones(Int, G)
 	week = Int(ceil(day/7))
-    for hour=hpd*(day-1)+1:hpd*(day-1)+hpd
-    	for g=1:G
-    		if week in GenSchOut[g] || hour in GenForceOut[g] push!(uGen, 0)
-    		else push!(uGen, 1)
-    		end
+	hour = hpd * (day - 1)	#compute last hour in the previous day, to check for forced outages
+    for g=1:G
+    	if week in GenSchOut[g]
+    		uGen[g] = 0
+    		continue
     	end
-    	for l=1:L
-    		#if day in BranchSchOut[l] || hour in BranchForceOut[l] push!(uBranch, 0)
-    		if hour in BranchForceOut[l] push!(uBranch, 0)
-    		else push!(uBranch, 1)
+    	for (start, duration) in GenForceOut[g]
+    		if start > hour break		#if the current outage starts after the considered hour, no need to look at more outages (since GenForceOut is ordered)
+    		elseif hour <= start + duration 	#if the generator is out at the considered hour, it is out for the entire day (conservative approach)
+    			uGen[g] = 0
     		end
     	end
     end
-    uGen = reshape(uGen, G, hpd)
-    uBranch = reshape(uBranch, L, hpd)
 	
 	#m = Model(solver = GurobiSolver(OutputFlag=0))
     #m = Model(solver = CbcSolver(logLevel=0, threads=16))
@@ -248,7 +245,7 @@ for day=1:1
 	@objective(m, Min, sum{sum{cost[Gtype[g]] * PMC[g,h], g=1:G}, h = 1:hpd} )
 
     #Generator availability and cycling
-	@constraint(m, GenAvailability[g=1:G, h = 1:hpd], uMC[g,h] <= uGen[g,h])
+	@constraint(m, GenAvailability[g=1:G, h = 1:hpd], uMC[g,h] <= uGen[g])
 	@constraint(m, updown1[g=1:G], vMC[g,1] - wMC[g,1] == uMC[g,1] ) #assume all generators are off at the beginning of the day
 	@constraint(m, updown[g=1:G, h = 2:hpd], vMC[g,h] - wMC[g,h] == uMC[g,h] - uMC[g,h-1] )
 	@constraint(m, MinUPTime[g=1:G, h = UT[Gtype[g]]:hpd], sum{vMC[g,s], s=h-UT[Gtype[g]]+1:h} <= uMC[g,h] )
@@ -283,7 +280,7 @@ for day=1:1
     println("Task ", ARGS[2], ": Computing market outcome for day ", day, " took ", T[end])
 
 end
-=#
+
 
 #Write data to file
 
@@ -293,33 +290,45 @@ if(isfile(outfile)) rm(outfile) end
 open(outfile,"a") do x
 	write(x,"GENERATOR SCHEDULED OUTAGES\n")
 	for g=1:G
-		write(x, join(GenSchOut[g], ","))
+		if isempty(GenSchOut[g]) continue end	#skip generators with no outages
+		write(x, string(g), " ")	#write generator index	
+		write(x, join(GenSchOut[g], " "))
 		write(x, "\n")
 	end
 	write(x,"END\n\n")
 	write(x,"GENERATOR FORCED OUTAGES\n")
 	for g=1:G
-		write(x, join(GenForceOut[g], ","))
+		if isempty(GenForceOut[g]) continue	end 	#skip generators with no outages
+		write(x, string(g), " ")	#write generator index	
+		write(x, join(GenForceOut[g], " "))
 		write(x, "\n")
 	end	
 	write(x,"END\n\n")
 	write(x,"BRANCH FORCED OUTAGES\n")
 	for l=1:L
-		write(x, join(BranchForceOut[l], ","))
+		if isempty(BranchForceOut[l]) continue end 	#skip branches with no outages
+		write(x, string(l), " ")	#write branch index	
+		write(x, join(BranchForceOut[l], " "))
 		write(x, "\n")
 	end	
+	write(x,"END\n\n")
 	write(x,"DEMAND FORECAST\n")
-	writecsv(x, Ploadfc)
+	writedlm(x, Ploadfc, " ")
 	write(x,"END\n\n")
 	write(x,"DEMAND REALIZATION\n")
-	writecsv(x, Pload)
+	writedlm(x, Pload, " ")
 	write(x,"END\n\n")
-	#=
+	
 	write(x,"END\n\n")
 	write(x,"MARKET CLEARING OUTCOME\n")
-	writecsv(x, MarketClearing)
+	for g=1:G
+		if isempty(MarketClearing[g]) continue	end 	#skip generators which will remain off
+		write(x, string(g), " ")	#write generator index		
+		write(x, join(MarketClearing[g], " "))
+		write(x, "\n")
+	end
 	write(x,"END\n\n")
-	=#
+	
 end
 
 

@@ -17,7 +17,7 @@ function readBusData(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             N = parse(Int, splitted[1])
         end
     end
@@ -51,7 +51,7 @@ function readLoadData(inputfile, N)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             bus_id = parse(Int, splitted[1])
             push!(Dn[bus_id], i) 
             i = i + 1
@@ -90,7 +90,7 @@ function readGeneratorData(inputfile, N)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             bus_id = parse(Int, splitted[1])
             push!(Gn[bus_id], i) 
             i = i + 1
@@ -130,7 +130,7 @@ function readGenLookupTable(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             gType = chomp(splitted[1])
             push!(Pmin, gType => float(splitted[2]))
             push!(Pmax, gType => float(splitted[3]))
@@ -173,7 +173,7 @@ function readBranchData(inputfile, N)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             temp = zeros(N)
             fr_bus = parse(Int, splitted[1])
             to_bus = parse(Int, splitted[2])
@@ -196,12 +196,17 @@ end
 
 #######Micro-scenario data
 
-function readGenAvailability(inputfile)
+function readGenAvailability(inputfile, G)
 
-    local uGen = []
+    local GenSchOut = Array(Any, G)
+    local GenForceOut = Array(Any, G)
+    for g=1:G
+        GenSchOut[g] = Int[]
+        GenForceOut[g] = Tuple{Int, Int}[]
+    end
     open(inputfile) do filehandle
 
-        key = "GENERATOR AVAILABILITY"
+        key = "GENERATOR SCHEDULED OUTAGES"
         len = length(key)
         while !eof(filehandle)
             line = readline(filehandle)
@@ -209,30 +214,50 @@ function readGenAvailability(inputfile)
                 break
             end
         end
-        i = 1
         while !eof(filehandle)
             line = readline(filehandle)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
-            append!(uGen, [parse(Int64,s) for s = splitted])
-            i = i + 1
+            splitted = split(line," ")
+            g = parse(Int64, splitted[1])
+            append!(GenSchOut[g], [parse(Int64,s) for s = splitted[2:end]])
         end
-        G = i - 1
-        H = round(Int, length(uGen) / G)
-        uGen = reshape(uGen, H, G)
-        uGen = transpose(uGen)
     end
-    return uGen
+
+    open(inputfile) do filehandle
+        key = "GENERATOR FORCED OUTAGES"
+        len = length(key)
+        while !eof(filehandle)
+            line = readline(filehandle)
+            if(length(line) >= len && line[1:len] == key)
+                break
+            end
+        end
+        while !eof(filehandle)
+            line = readline(filehandle)
+            if(length(line) >= 3 && line[1:3] == "END")
+                break
+            end
+            splitted = split(line," ")
+            g = parse(Int64, splitted[1])
+            xx = [split(strip(chomp(s),['(',')']),",") for s = splitted[2:end]]
+            append!(GenForceOut[g], Tuple{Int,Int}[tuple(parse(Int64, yy[1]), parse(Int64, yy[2])) for yy = xx])
+        end
+    end
+    return GenSchOut, GenForceOut
 end
 
-function readBranchAvailability(inputfile)
+function readBranchAvailability(inputfile, L)
 
-    local uBranch = []
+    #local BranchSchOut = Array(Any, L)
+    local BranchForceOut = Array(Any, L)
+    for l=1:L
+        BranchForceOut[l] = Tuple{Int, Int}[]
+    end
     open(inputfile) do filehandle
 
-        key = "BRANCH AVAILABILITY"
+        key = "BRANCH FORCED OUTAGES"
         len = length(key)
         while !eof(filehandle)
             line = readline(filehandle)
@@ -240,31 +265,32 @@ function readBranchAvailability(inputfile)
                 break
             end
         end
-        i = 1
         while !eof(filehandle)
             line = readline(filehandle)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
-            append!(uBranch, [parse(Int64,s) for s = splitted])
-            i = i + 1
+            splitted = split(line," ")
+            l = parse(Int64, splitted[1])
+            xx = [split(strip(chomp(s),['(',')']),",") for s = splitted[2:end]]
+            append!(BranchForceOut[l], Tuple{Int,Int}[tuple(parse(Int64, yy[1]), parse(Int64, yy[2])) for yy = xx])
+
         end
-        L = i - 1
-        H = round(Int, length(uBranch) / L)
-        uBranch = reshape(uBranch, H, L)
-        uBranch = transpose(uBranch)
     end
-    return uBranch
+    return BranchForceOut
 end
 
 
-function readMarketOutcome(inputfile)
+function readMarketOutcome(inputfile, G)
 
-    local PMCstar = [], uMCstar = []
+    local MarketClearing = Array(Any, G)
+    for g=1:G
+        MarketClearing[g] = Tuple{Int, Float64}[]
+    end
+
     open(inputfile) do filehandle
 
-        key = "MARKET GENERATION"
+        key = "MARKET CLEARING OUTCOME"
         len = length(key)
         while !eof(filehandle)
             line = readline(filehandle)
@@ -272,45 +298,20 @@ function readMarketOutcome(inputfile)
                 break
             end
         end
-        i = 1
         while !eof(filehandle)
             line = readline(filehandle)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
-            append!(PMCstar, float(splitted))
-            i = i + 1
+            splitted = split(line," ")
+            splitted = split(line," ")
+            g = parse(Int64, splitted[1])
+            xx = [split(strip(chomp(s),['(',')']),",") for s = splitted[2:end]]
+            append!(MarketClearing[g], Tuple{Int,Float64}[tuple(parse(Int64, yy[1]), parse(Float64, yy[2])) for yy = xx])
         end
-        G = i - 1
-        H = round(Int, length(PMCstar) / G)
-        PMCstar = reshape(PMCstar, H, G)
-        PMCstar = transpose(PMCstar)
 
-        key = "MARKET ON/OFF"
-        len = length(key)
-        while !eof(filehandle)
-            line = readline(filehandle)
-            if(length(line) >= len && line[1:len] == key)
-                break
-            end
-        end
-        i = 1
-        while !eof(filehandle)
-            line = readline(filehandle)
-            if(length(line) >= 3 && line[1:3] == "END")
-                break
-            end
-            splitted = split(line,",")
-            append!(uMCstar, [parse(Int64,s) for s = splitted])
-            i = i + 1
-        end
-        G = i - 1
-        H = round(Int, length(uMCstar) / G)
-        uMCstar = reshape(uMCstar, H, G)
-        uMCstar = transpose(uMCstar)
     end
-    return PMCstar, uMCstar
+    return MarketClearing
 end
 
 function readDemandRealization(inputfile)
@@ -333,7 +334,7 @@ function readDemandRealization(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             append!(Pload, float(splitted))
             i = i + 1
         end
@@ -370,7 +371,7 @@ function readDemandForecast(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             append!(Ploadfc, float(splitted))
             i = i + 1
         end
@@ -412,7 +413,7 @@ function readPeakLoadData(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             push!(PCTWeeklyPeakLoad, float(splitted[1]))
         end
 
@@ -429,7 +430,7 @@ function readPeakLoadData(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             push!(PCTDailyPeakLoad, float(splitted[1]))
         end
 
@@ -446,7 +447,7 @@ function readPeakLoadData(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             append!(PCTHourlyPeakLoad, float(splitted))
         end
         PCTHourlyPeakLoad = reshape(PCTHourlyPeakLoad, 6, 24)
@@ -465,7 +466,7 @@ function readPeakLoadData(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             push!(PCTBusLoad, float(splitted[1]))
         end
 
@@ -495,7 +496,7 @@ function readDAdecision(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             append!(PDAstar, float(splitted))
             i = i + 1
         end
@@ -518,7 +519,7 @@ function readDAdecision(inputfile)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
-            splitted = split(line,",")
+            splitted = split(line," ")
             append!(uDAstar, [parse(Int64,s) for s = splitted])
             i = i + 1
         end
