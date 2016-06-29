@@ -4,15 +4,17 @@ using JuMP
 #using GLPKMathProgInterface
 #using Clp
 using Gurobi
+using CPLEX
 
-#constants
-global hpd = 24, dpw = 7, wpy = 52,
-        hpy = hpd * dpw * wpy,
-        dpy = dpw * wpy
-
-#More constants
+#DEFINE time constants
+hpd = 24
+dpw = 7
+wpy = 52
+hpy = hpd * dpw * wpy
+dpy = dpw * wpy
 Dt = 60                 #minutes
 dt = 15                 #minutes
+
 
 T = []
 push!(T, toq())
@@ -26,9 +28,36 @@ Dn, D = readLoadData(string(ARGS[1]), N)
 Gn, Gtype, G = readGeneratorData(string(ARGS[1]), N)
 Pmin, Pmax, RD, RU, DT, UT, cost = readGenLookupTable(string(ARGS[1]))
 beta, X, fmax, STfmax, L = readBranchData(string(ARGS[1]), N)
-PMCstar, uMCstar = readMarketOutcome(string("./micro-scenarios/micro",ARGS[2],".",ARGS[1]))
-PDAstar, uDAstar = readDAdecision(string("./DAdecisions/DAdecision",ARGS[2],".",ARGS[1]))
+GenSchOut, GenForceOut = readGenAvailability(string("./micro-scenarios/micro",ARGS[2],".",ARGS[1]), G)
+BranchForceOut = readBranchAvailability(string("./micro-scenarios/micro",ARGS[2],".",ARGS[1]), L)
+MarketClearing = readMarketOutcome(string("./micro-scenarios/micro",ARGS[2],".",ARGS[1]), G)
+DAdecision = readDAdecision(string("./DAdecisions/DAdecision",ARGS[2],".",ARGS[1]), G)
 Pload = readDemandRealization(string("./micro-scenarios/micro",ARGS[2],".",ARGS[1]))
+
+
+#create matrix of branch availability
+uBranch = ones(Int, L)
+for l=1:L
+    for (start, duration) in BranchForceOut[l]
+        stop = min(hpy, start + duration)
+        uBranch[l, start:stop] = 0
+    end
+end
+ 
+#create matrices of market clearing outcome
+uMCstar = zeros(Int, G, hpy)
+PMCstar = zeros(Float64, G, hpy)
+for g=1:G
+    for (hour, Pgen) in MarketClearing[g]
+        if hour > last_hour break       #no need to look at hours after the current day
+        else
+            hour_of_day = mod(hour-1,hpd) + 1
+            uMCstar[g,hour_of_day] = 1
+            PMCstar[g,hour_of_day] = Pgen
+        end
+    end
+end
+
 
 #COMBINE MARKET AND DA
 PMCDAstar = PMCstar + PDAstar       #PMCDAstar = PMCstar + PDAstar (uncomment when I have all DA results)
@@ -66,13 +95,15 @@ dt = 15                 #minutes
 push!(T, toq())
 println("Reading and preparing data took ", T[end])
 
-for h = 1:2*hpd
+#for h = 1:hpy
+for h = 1:hpd
 
     tic()
-    m = Model(solver = GurobiSolver(OutputFlag=0))
+    #m = Model(solver = GurobiSolver(OutputFlag=0))
     #m = Model(solver = GLPKSolverLP())
     #m = Model(solver = ClpSolver())
     #m = Model()
+    m = Model(solver = CplexSolver())
 
     @variable(m, Pup0[1:G] >= 0)
     @variable(m, Pdn0[1:G] >= 0)
@@ -93,7 +124,7 @@ for h = 1:2*hpd
         sum{beta[n,l] * f0[l], l=1:L} == 
         sum{Pload[d,h], d in Dn[n]}
         )
-    @constraint(m, preFlow[l=1:L], f0[l] - (1/X[l]) * sum{beta[n,l] * th0[n], n=1:N} == 0 )
+    @constraint(m, preFlow[l=1:L], f0[l] - uBranch[l,h] * (1/X[l]) * sum{beta[n,l] * th0[n], n=1:N} == 0 )
 
     @constraint(m, preFlowPosLim[l=1:L], f0[l] <= fmax[l] )
     @constraint(m, preFlowNegLim[l=1:L], -f0[l] <= fmax[l] )
@@ -110,7 +141,7 @@ for h = 1:2*hpd
         sum{beta[n,l] * STfc[l,c], l=1:L} == 
         sum{Pload[d,h], d in Dn[n]}
         )
-    @constraint(m, STpostFlow[l=1:L,c=1:C], STfc[l,c] - a[l,c] * (1/X[l]) * sum{beta[n,l] * STthc[n,c], n=1:N} == 0 )
+    @constraint(m, STpostFlow[l=1:L,c=1:C], STfc[l,c] - uBranch[l,h] * a[l,c] * (1/X[l]) * sum{beta[n,l] * STthc[n,c], n=1:N} == 0 )
 
     @constraint(m, STpostFlowPosLim[l=1:L,c=1:C], STfc[l,c] <= STfmax[l] )
     @constraint(m, STpostFlowNegLim[l=1:L,c=1:C], -STfc[l,c] <= STfmax[l] )
@@ -121,7 +152,7 @@ for h = 1:2*hpd
         sum{beta[n,l] * fc[l,c], l=1:L} == 
         sum{Pload[d,h], d in Dn[n]}
         )
-    @constraint(m, postFlow[l=1:L,c=1:C], fc[l,c] - a[l,c] * (1/X[l]) * sum{beta[n,l] * thc[n,c], n=1:N} == 0 )
+    @constraint(m, postFlow[l=1:L,c=1:C], fc[l,c] - uBranch[l,h] * a[l,c] * (1/X[l]) * sum{beta[n,l] * thc[n,c], n=1:N} == 0 )
 
     @constraint(m, postFlowPosLim[l=1:L,c=1:C], fc[l,c] <= fmax[l] )
     @constraint(m, postFlowNegLim[l=1:L,c=1:C], -fc[l,c] <= fmax[l] )

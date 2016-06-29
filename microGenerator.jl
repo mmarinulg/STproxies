@@ -8,12 +8,15 @@ using Distributions
 
 T = []
 
-global hpd = 24, dpw = 7, wpy = 52,
-		hpy = hpd * dpw * wpy,
-		hpw = hpd * dpw,
-		dpy = dpw * wpy
 
-Dt = 60
+#DEFINE time constants
+hpd = 24
+dpw = 7
+wpy = 52
+hpy = hpd * dpw * wpy
+dpy = dpw * wpy
+Dt = 60                 #minutes
+
 
 include("./readData.jl")
 

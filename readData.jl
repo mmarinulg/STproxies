@@ -304,7 +304,6 @@ function readMarketOutcome(inputfile, G)
                 break
             end
             splitted = split(line," ")
-            splitted = split(line," ")
             g = parse(Int64, splitted[1])
             xx = [split(strip(chomp(s),['(',')']),",") for s = splitted[2:end]]
             append!(MarketClearing[g], Tuple{Int,Float64}[tuple(parse(Int64, yy[1]), parse(Float64, yy[2])) for yy = xx])
@@ -477,12 +476,16 @@ end
 
 #######DA decision data
 
-function readDAdecision(inputfile)
+function readDAdecision(inputfile, G)
 
-    local PDAstar = [], uDAstar = []
+    local DAdecision = Array(Any, G)
+    for g=1:G
+        DAdecision[g] = Tuple{Int, Float64}[]
+    end
+
     open(inputfile) do filehandle
 
-        key = "DA GENERATION"
+        key = "DA DECISION"
         len = length(key)
         while !eof(filehandle)
             line = readline(filehandle)
@@ -490,43 +493,17 @@ function readDAdecision(inputfile)
                 break
             end
         end
-        i = 1
         while !eof(filehandle)
             line = readline(filehandle)
             if(length(line) >= 3 && line[1:3] == "END")
                 break
             end
             splitted = split(line," ")
-            append!(PDAstar, float(splitted))
-            i = i + 1
+            g = parse(Int64, splitted[1])
+            xx = [split(strip(chomp(s),['(',')']),",") for s = splitted[2:end]]
+            append!(DAdecision[g], Tuple{Int,Float64}[tuple(parse(Int64, yy[1]), parse(Float64, yy[2])) for yy = xx])
         end
-        G = i - 1
-        H = round(Int, length(PDAstar) / G)
-        PDAstar = reshape(PDAstar, H, G)
-        PDAstar = transpose(PDAstar)
 
-        key = "DA ON/OFF"
-        len = length(key)
-        while !eof(filehandle)
-            line = readline(filehandle)
-            if(length(line) >= len && line[1:len] == key)
-                break
-            end
-        end
-        i = 1
-        while !eof(filehandle)
-            line = readline(filehandle)
-            if(length(line) >= 3 && line[1:3] == "END")
-                break
-            end
-            splitted = split(line," ")
-            append!(uDAstar, [parse(Int64,s) for s = splitted])
-            i = i + 1
-        end
-        G = i - 1
-        H = round(Int, length(uDAstar) / G)
-        uDAstar = reshape(uDAstar, H, G)
-        uDAstar = transpose(uDAstar)
     end
-    return PDAstar, uDAstar
+    return DAdecision
 end
